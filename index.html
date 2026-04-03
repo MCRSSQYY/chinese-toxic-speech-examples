@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>脏话实例检索器</title>
+  <style>
+	body {
+	  font-family: "Microsoft YaHei", sans-serif;
+	  padding: 20px;
+	  background-color: #f9f9f9;
+	  color: #333;
+	}
+	.warning {
+	  background-color: #fff3cd;
+	  border: 1px solid #ffeaa7;
+	  color: #856404;
+	  padding: 15px;
+	  margin-bottom: 20px;
+	  border-radius: 6px;
+	}
+	h1 {
+	  text-align: center;
+	  color: #d63031;
+	}
+	.search-box {
+	  width: 100%;
+	  padding: 10px;
+	  font-size: 16px;
+	  margin: 20px 0;
+	  border: 1px solid #ccc;
+	  border-radius: 4px;
+	  box-sizing: border-box;
+	}
+	.example-list {
+	  margin-top: 20px;
+	}
+	.example-item {
+	  background: white;
+	  padding: 12px;
+	  margin-bottom: 10px;
+	  border-left: 4px solid #ff7675;
+	  border-radius: 4px;
+	  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+	  display: none;
+	}
+	.example-item.visible {
+	  display: block;
+	}
+	.keyword-tag {
+	  background-color: #fdcb6e;
+	  padding: 2px 6px;
+	  border-radius: 4px;
+	  font-weight: bold;
+	  margin-right: 8px;
+	}
+	.copy-btn {
+	  float: right;
+	  background: #00b894;
+	  color: white;
+	  border: none;
+	  padding: 4px 8px;
+	  border-radius: 4px;
+	  cursor: pointer;
+	  font-size: 14px;
+	}
+	.copy-btn:hover {
+	  background: #00a085;
+	}
+	.loading, .error {
+	  text-align: center;
+	  padding: 20px;
+	  color: #666;
+	}
+	.error {
+	  color: #e17055;
+	}
+  </style>
+</head>
+<body>
+
+  <!-- 警告提示 -->
+  <div class="warning">
+	<strong>⚠️ 重要警告：</strong>本工具仅供语言研究、内容过滤测试或教育目的使用。严禁将本工具用于任何非法、骚扰、诽谤、侵犯他人权益或其他违反中国法律法规及社会公序良俗的用途。使用者须自行承担一切法律责任。
+  </div>
+
+  <h1>脏话实例检索器</h1>
+
+  <input type="text" id="searchInput" class="search-box" placeholder="请输入关键词（如：傻、混蛋、垃圾...）" autocomplete="off" disabled />
+
+  <div id="status"></div>
+  <div class="example-list" id="exampleList"></div>
+
+  <script>
+	const csvUrl = 'bad_language.csv'; // 假设 CSV 与 HTML 在同一目录
+	const searchInput = document.getElementById('searchInput');
+	const exampleList = document.getElementById('exampleList');
+	const statusDiv = document.getElementById('status');
+	let rawData = [];
+
+	// 简单 CSV 解析函数（支持带逗号的句子）
+	function parseCSV(csvText) {
+	  const lines = csvText.trim().split(/\r?\n/);
+	  if (lines.length < 2) throw new Error('CSV 内容不足');
+
+	  const headers = lines[0].split(',');
+	  if (headers.length < 2 || headers[0] !== 'Keyword' || headers[1] !== 'Sentence') {
+		throw new Error('CSV 格式错误：首行应为 Keyword,Sentence');
+	  }
+
+	  const data = [];
+	  for (let i = 1; i < lines.length; i++) {
+		const line = lines[i].trim();
+		if (!line) continue;
+
+		// 使用正则分割：第一个逗号作为分隔符，其余视为 Sentence 内容
+		const match = line.match(/^([^,]*),(.*)$/);
+		if (match) {
+		  const Keyword = match[1].trim();
+		  const Sentence = match[2].trim();
+		  if (Keyword && Sentence) {
+			data.push({ Keyword, Sentence });
+		  }
+		}
+	  }
+	  return data;
+	}
+
+	// 渲染例句列表
+	function renderExamples(data) {
+	  exampleList.innerHTML = '';
+	  rawData = data;
+	  data.forEach(item => {
+		const div = document.createElement('div');
+		div.className = 'example-item';
+		div.dataset.keyword = item.Keyword;
+		div.innerHTML = `
+		  <span class="keyword-tag">${escapeHtml(item.Keyword)}</span>
+		  <span class="sentence-text">${escapeHtml(item.Sentence)}</span>
+		  <button class="copy-btn" data-sentence="${escapeHtml(item.Sentence)}">复制</button>
+		`;
+		exampleList.appendChild(div);
+	  });
+	  searchInput.disabled = false;
+	  searchInput.placeholder = "请输入关键词（如：傻、混蛋、垃圾...）";
+	}
+
+	// 防 XSS：转义 HTML 特殊字符
+	function escapeHtml(text) {
+	  const map = {
+		'&': '&amp;',
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		"'": '&#039;'
+	  };
+	  return text.replace(/[&<>"']/g, m => map[m]);
+	}
+
+	// 实时搜索
+	searchInput.addEventListener('input', function () {
+	  const query = this.value.trim().toLowerCase();
+	  let firstVisible = null;
+
+	  document.querySelectorAll('.example-item').forEach(item => {
+		const keyword = item.dataset.keyword.toLowerCase();
+		const sentence = item.querySelector('.sentence-text').textContent.toLowerCase();
+		const match = query && (keyword.includes(query) || sentence.includes(query));
+
+		if (match) {
+		  item.classList.add('visible');
+		  if (!firstVisible) firstVisible = item;
+		} else {
+		  item.classList.remove('visible');
+		}
+	  });
+
+	  if (firstVisible) {
+		firstVisible.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	  }
+	});
+
+	// 复制功能
+	exampleList.addEventListener('click', function (e) {
+	  if (e.target.classList.contains('copy-btn')) {
+		const sentence = e.target.getAttribute('data-sentence');
+		navigator.clipboard.writeText(sentence).then(() => {
+		  const original = e.target.textContent;
+		  e.target.textContent = '已复制！';
+		  setTimeout(() => e.target.textContent = original, 1500);
+		}).catch(() => {
+		  alert('复制失败，请手动复制。');
+		});
+	  }
+	});
+
+	// 加载 CSV
+	fetch(csvUrl)
+	  .then(response => {
+		if (!response.ok) throw new Error(`HTTP 错误! 状态: ${response.status}`);
+		return response.text();
+	  })
+	  .then(csvText => {
+		const data = parseCSV(csvText);
+		if (data.length === 0) throw new Error('未解析到有效数据');
+		renderExamples(data);
+		statusDiv.innerHTML = ''; // 清除 loading
+	  })
+	  .catch(err => {
+		console.error('加载 CSV 失败:', err);
+		statusDiv.innerHTML = `<div class="error">❌ 加载 bad_language.csv 失败：<br>${err.message}<br>请确保该文件与本页面在同一目录下，并通过 HTTP(S) 访问。</div>`;
+		searchInput.disabled = true;
+	  });
+  </script>
+</body>
+</html>
